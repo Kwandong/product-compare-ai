@@ -1,238 +1,355 @@
-// v-8
-import { useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { storage } from "./services/storage";
+import type { Product, ProductResult } from "./types/product";
 
-type ProductStatus = "good" | "bad";
+const CATEGORY_OPTIONS = [
+  "전자제품",
+  "생활용품",
+  "식품",
+  "의류",
+  "문구",
+  "기타",
+  "직접 입력",
+];
 
-type Product = {
-  id: string;
-  name: string;
-  design: number;
-  priceScore: number;
-  status: ProductStatus;
-  imageUrl?: string;
-  createdAt: number;
-};
+// 이미지 압축 함수
+async function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
 
-export default function App() {
-  const [name, setName] = useState("");
-  const [design, setDesign] = useState(3);
-  const [priceScore, setPriceScore] = useState(3);
-  const [status, setStatus] = useState<ProductStatus>("good");
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+    reader.onload = () => {
+      const img = new Image();
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+      img.onload = () => {
+        const maxWidth = 600;
+        const scale = Math.min(1, maxWidth / img.width);
 
-  // 👉 숨겨진 input refs
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
 
-  const addProduct = () => {
-    if (!name.trim()) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas context 생성 실패"));
+          return;
+        }
 
-    const newProduct: Product = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      design,
-      priceScore,
-      status,
-      imageUrl: imageUrl || undefined,
-      createdAt: Date.now(),
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // JPEG 압축 품질 0.75
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
+        resolve(compressedDataUrl);
+      };
+
+      img.onerror = () => reject(new Error("이미지 로드 실패"));
+
+      if (typeof reader.result === "string") {
+        img.src = reader.result;
+      } else {
+        reject(new Error("파일 읽기 실패"));
+      }
     };
 
-    setProducts([newProduct, ...products]);
+    reader.onerror = () => reject(new Error("파일 읽기 실패"));
+    reader.readAsDataURL(file);
+  });
+}
 
-    setName("");
-    setDesign(3);
-    setPriceScore(3);
-    setStatus("good");
-    setImageUrl(null);
+export default function App() {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [customCategory, setCustomCategory] = useState("");
+  const [name, setName] = useState("");
+  const [result, setResult] = useState<ProductResult | "">("");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [filter, setFilter] = useState<"all" | "good" | "bad">("all");
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+
+  const loadProducts = () => {
+    const data = storage.get();
+    setProducts(data);
   };
 
-  const toggleSelect = (id: string) => {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter((v) => v !== id));
-    } else {
-      setSelectedIds([...selectedIds, id]);
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  const handleImageChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsProcessingImage(true);
+      const compressed = await compressImage(file);
+      setImageUrl(compressed);
+    } catch (error) {
+      console.error(error);
+      alert("이미지 처리 중 오류가 발생했습니다.");
+    } finally {
+      setIsProcessingImage(false);
     }
   };
 
-  // 👉 이미지 처리 공통
-  const handleImage = (file: File) => {
-    const url = URL.createObjectURL(file);
-    setImageUrl(url);
+  const getFinalCategory = () => {
+    if (selectedCategory === "직접 입력") {
+      return customCategory.trim();
+    }
+    return selectedCategory.trim();
   };
 
-  // 👉 업로드
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    handleImage(file);
+  const resetForm = () => {
+    setImageUrl(null);
+    setSelectedCategory("");
+    setCustomCategory("");
+    setName("");
+    setResult("");
   };
 
-  // 👉 촬영
-  const handleCamera = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    handleImage(file);
+  const handleSave = () => {
+    const finalCategory = getFinalCategory();
+
+    if (!imageUrl || !finalCategory || !name.trim() || !result) {
+      alert("이미지, 품목, 제품명, Good/Bad를 모두 입력해 주세요.");
+      return;
+    }
+
+    const product: Product = {
+      id: Date.now().toString(),
+      imageUrl,
+      category: finalCategory,
+      name: name.trim(),
+      result,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      storage.add(product);
+      loadProducts();
+      resetForm();
+      alert("저장되었습니다.");
+    } catch (error) {
+      console.error(error);
+      alert(
+        "저장 공간이 부족합니다. 기존 데이터를 일부 삭제한 뒤 다시 시도해 주세요."
+      );
+    }
   };
 
-  const selectedProducts = products.filter((p) =>
-    selectedIds.includes(p.id)
-  );
+  const handleDelete = (id: string) => {
+    const ok = confirm("삭제하시겠습니까?");
+    if (!ok) return;
+
+    storage.remove(id);
+    loadProducts();
+  };
+
+  const filteredProducts = useMemo(() => {
+    let resultList = products;
+
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (keyword) {
+      resultList = resultList.filter((product) => {
+        const category = product.category.toLowerCase();
+        const name = product.name.toLowerCase();
+        return category.includes(keyword) || name.includes(keyword);
+      });
+    }
+
+    if (filter !== "all") {
+      resultList = resultList.filter((product) => product.result === filter);
+    }
+
+    return resultList;
+  }, [products, searchKeyword, filter]);
 
   return (
-    <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
-      <h1>Product Compare AI</h1>
-      <p>이미지 기반 제품 판단 시스템</p>
+    <div className="app">
+      <div className="container">
+        <h1 className="title">Cognote</h1>
+        <p className="subtitle">사진 기반 제품 판단 기록 시스템</p>
 
-      {/* 입력 */}
-      <div style={{ border: "1px solid #ddd", padding: 16, marginBottom: 24 }}>
-        <h2>제품 등록</h2>
+        <section className="card">
+          <h2 className="section-title">제품 등록</h2>
 
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="제품 이름"
-          style={{ width: "90%", padding: 8 }}
-        />
-
-        {/* 👉 버튼 UI */}
-        <div style={{ marginTop: 10 }}>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{ marginRight: 10 }}
-          >
-            📁 이미지 업로드
-          </button>
-
-          <button onClick={() => cameraInputRef.current?.click()}>
-            📸 카메라 촬영
-          </button>
-        </div>
-
-        {/* 👉 숨겨진 input */}
-        <input
-          type="file"
-          accept="image/*"
-          ref={fileInputRef}
-          onChange={handleUpload}
-          style={{ display: "none" }}
-        />
-
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          ref={cameraInputRef}
-          onChange={handleCamera}
-          style={{ display: "none" }}
-        />
-
-        {/* 미리보기 */}
-        {imageUrl && (
-          <img
-            src={imageUrl}
-            style={{ width: 150, marginTop: 10, borderRadius: 10 }}
-          />
-        )}
-
-        <div>
-          디자인:
           <input
-            type="number"
-            min="1"
-            max="5"
-            value={design}
-            onChange={(e) => setDesign(Number(e.target.value))}
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            className="file-input"
           />
-        </div>
 
-        <div>
-          가격:
-          <input
-            type="number"
-            min="1"
-            max="5"
-            value={priceScore}
-            onChange={(e) => setPriceScore(Number(e.target.value))}
-          />
-        </div>
+          {isProcessingImage && (
+            <p className="empty-text">이미지 처리 중...</p>
+          )}
 
-        <div>
-          <button
-            onClick={() => setStatus("good")}
-            style={{
-              background: status === "good" ? "green" : "gray",
-              color: "white",
-              marginRight: 10,
-            }}
+          {imageUrl && !isProcessingImage && (
+            <img src={imageUrl} alt="preview" className="preview-image" />
+          )}
+
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="text-input"
           >
-            Good
-          </button>
-
-          <button
-            onClick={() => setStatus("bad")}
-            style={{
-              background: status === "bad" ? "red" : "gray",
-              color: "white",
-            }}
-          >
-            Bad
-          </button>
-        </div>
-
-        <button onClick={addProduct}>추가</button>
-      </div>
-
-      {/* 리스트 */}
-      <div style={{ border: "1px solid #ddd", padding: 16 }}>
-        <h2>제품 목록</h2>
-
-        <div>선택: {selectedIds.length}</div>
-
-        <ul>
-          {products.map((p) => (
-            <li key={p.id}>
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(p.id)}
-                onChange={() => toggleSelect(p.id)}
-              />
-
-              {p.imageUrl && (
-                <img
-                  src={p.imageUrl}
-                  style={{ width: 50, margin: "0 10px" }}
-                />
-              )}
-
-              {p.name} ({p.design}/{p.priceScore}){" "}
-              {p.status === "good" ? "👍" : "👎"}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* 비교 */}
-      {selectedProducts.length >= 2 && (
-        <div style={{ marginTop: 20, border: "2px solid green", padding: 16 }}>
-          <h2>비교</h2>
-
-          <div style={{ display: "flex", gap: 20 }}>
-            {selectedProducts.map((p) => (
-              <div key={p.id} style={{ width: 200 }}>
-                {p.imageUrl && (
-                  <img src={p.imageUrl} style={{ width: "100%" }} />
-                )}
-                <h3>{p.name}</h3>
-                <p>디자인: {p.design}</p>
-                <p>가격: {p.priceScore}</p>
-              </div>
+            <option value="">품목 선택</option>
+            {CATEGORY_OPTIONS.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
             ))}
+          </select>
+
+          {selectedCategory === "직접 입력" && (
+            <input
+              type="text"
+              placeholder="품목 직접 입력"
+              value={customCategory}
+              onChange={(e) => setCustomCategory(e.target.value)}
+              className="text-input"
+            />
+          )}
+
+          <input
+            type="text"
+            placeholder="제품명"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="text-input"
+          />
+
+          <div className="result-row">
+            <button
+              type="button"
+              onClick={() => setResult("good")}
+              className={`result-button ${
+                result === "good" ? "good active" : ""
+              }`}
+            >
+              GOOD
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setResult("bad")}
+              className={`result-button ${
+                result === "bad" ? "bad active" : ""
+              }`}
+            >
+              BAD
+            </button>
           </div>
-        </div>
-      )}
+
+          <button type="button" onClick={handleSave} className="save-button">
+            저장
+          </button>
+        </section>
+
+        <section className="card">
+          <h2 className="section-title">저장된 제품</h2>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button
+              onClick={() => setFilter("all")}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                border: "none",
+                background: filter === "all" ? "#2563eb" : "#6b7280",
+                color: "white",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              전체
+            </button>
+
+            <button
+              onClick={() => setFilter("good")}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                border: "none",
+                background: filter === "good" ? "#16a34a" : "#6b7280",
+                color: "white",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              GOOD
+            </button>
+
+            <button
+              onClick={() => setFilter("bad")}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                border: "none",
+                background: filter === "bad" ? "#dc2626" : "#6b7280",
+                color: "white",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              BAD
+            </button>
+          </div>
+
+          <input
+            type="text"
+            placeholder="품목 또는 제품명 검색"
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            className="text-input"
+          />
+
+          {filteredProducts.length === 0 ? (
+            <p className="empty-text">검색 결과가 없습니다.</p>
+          ) : (
+            <div className="list">
+              {filteredProducts.map((product) => (
+                <div key={product.id} className="list-card">
+                  <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    className="list-image"
+                  />
+
+                  <div className="list-body">
+                    <div className="list-name">{product.name}</div>
+                    <div className="list-category">{product.category}</div>
+
+                    <div
+                      className={`list-result ${
+                        product.result === "good" ? "good-text" : "bad-text"
+                      }`}
+                    >
+                      {product.result === "good" ? "👍 GOOD" : "👎 BAD"}
+                    </div>
+
+                    <div className="list-date">
+                      {new Date(product.createdAt).toLocaleString()}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(product.id)}
+                      className="delete-button"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
