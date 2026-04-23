@@ -171,11 +171,14 @@ input {
 
 .delete-button {
   border: none;
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 6px;
+  padding: 6px 10px;
   cursor: pointer;
   background: #b91c1c;
   color: white;
-  font-weight: 700;
-  width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  
+  /* width: auto;
+  display: inline-block; */
 }

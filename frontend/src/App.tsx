@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { storage } from "./services/storage";
 import type { Product, ProductResult } from "./types/product";
 
@@ -12,7 +12,6 @@ const CATEGORY_OPTIONS = [
   "직접 입력",
 ];
 
-// 이미지 압축 함수
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -36,7 +35,6 @@ async function compressImage(file: File): Promise<string> {
 
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        // JPEG 압축 품질 0.75
         const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.75);
         resolve(compressedDataUrl);
       };
@@ -66,6 +64,9 @@ export default function App() {
   const [filter, setFilter] = useState<"all" | "good" | "bad">("all");
   const [isProcessingImage, setIsProcessingImage] = useState(false);
 
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
   const loadProducts = () => {
     const data = storage.get();
     setProducts(data);
@@ -75,12 +76,7 @@ export default function App() {
     loadProducts();
   }, []);
 
-  const handleImageChange = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     try {
       setIsProcessingImage(true);
       const compressed = await compressImage(file);
@@ -91,6 +87,24 @@ export default function App() {
     } finally {
       setIsProcessingImage(false);
     }
+  };
+
+  const handleUploadChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
+    e.target.value = "";
+  };
+
+  const handleCameraChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
+    e.target.value = "";
   };
 
   const getFinalCategory = () => {
@@ -132,9 +146,7 @@ export default function App() {
       alert("저장되었습니다.");
     } catch (error) {
       console.error(error);
-      alert(
-        "저장 공간이 부족합니다. 기존 데이터를 일부 삭제한 뒤 다시 시도해 주세요."
-      );
+      alert("저장 공간이 부족합니다. 기존 데이터를 일부 삭제해 주세요.");
     }
   };
 
@@ -174,11 +186,57 @@ export default function App() {
         <section className="card">
           <h2 className="section-title">제품 등록</h2>
 
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={() => uploadInputRef.current?.click()}
+              style={{
+                flex: 1,
+                padding: 12,
+                borderRadius: 10,
+                border: "none",
+                background: "#374151",
+                color: "white",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              갤러리 업로드
+            </button>
+
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              style={{
+                flex: 1,
+                padding: 12,
+                borderRadius: 10,
+                border: "none",
+                background: "#0f172a",
+                color: "white",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              카메라 촬영
+            </button>
+          </div>
+
           <input
+            ref={uploadInputRef}
             type="file"
             accept="image/*"
-            onChange={handleImageChange}
-            className="file-input"
+            onChange={handleUploadChange}
+            style={{ display: "none" }}
+          />
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleCameraChange}
+            style={{ display: "none" }}
           />
 
           {isProcessingImage && (
@@ -335,7 +393,7 @@ export default function App() {
                     <div className="list-date">
                       {new Date(product.createdAt).toLocaleString()}
                     </div>
-
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>                   
                     <button
                       type="button"
                       onClick={() => handleDelete(product.id)}
@@ -343,6 +401,7 @@ export default function App() {
                     >
                       삭제
                     </button>
+                   </div>        
                   </div>
                 </div>
               ))}
