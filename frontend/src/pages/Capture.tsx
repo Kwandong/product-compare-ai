@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { storage } from "../services/storage";
 
 type ResultType = "good" | "bad" | "";
@@ -14,8 +13,6 @@ type Product = {
 };
 
 export default function Capture() {
-  const navigate = useNavigate();
-
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [category, setCategory] = useState("");
   const [name, setName] = useState("");
@@ -54,8 +51,8 @@ export default function Capture() {
     const existing = storage.get();
     storage.set([product, ...existing]);
 
+    alert("저장되었습니다.");
     resetForm();
-    navigate("/");
   };
 
   return (
